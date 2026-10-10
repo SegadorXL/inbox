@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.sqlite*
+secrets.json
+config.json
+inbox.md
+*.log
+.DS_Store
