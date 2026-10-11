@@ -22,7 +22,7 @@ IDs contain 1â€“128 letters, digits, underscores or hyphens. Content contains 1â
 
 Standalone URLs are preserved; shared text containing a URL is normalized to the first valid HTTP(S) URL. Plain text is preserved. Successful responses include `ok: true`, the ID and `duplicate`. An identical retry with the same ID is safe; different content or tags with the same ID returns 409.
 
-Markdown is grouped alphabetically by first tag (`no-tags` when absent), newest first per group. SQLite retains content, tags, IDs, ordering and UTC creation timestamps (older imports may lack timestamps). Writes use a writer lock, atomic replacement and a recovery journal. External Markdown edits halt writes for manual reconciliation.
+Markdown is grouped alphabetically by first tag (`no-tags` when absent), newest first per group. SQLite retains content, tags, IDs, ordering and UTC creation timestamps (older imports may lack timestamps). Writes use a writer lock, atomic replacement and a recovery journal. Manual Markdown edits are preserved as-is. Subsequent captures are grouped below the edited text; old captures are not restored. History and retry IDs remain in SQLite. Edits made during an interrupted, pending write still require reconciliation.
 
 **Deleting the Markdown inbox resets capture history during recovery and creates a fresh empty inbox.** To preserve data, back up Markdown and SQLite together under the writer lock.
 

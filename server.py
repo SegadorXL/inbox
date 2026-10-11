@@ -261,6 +261,15 @@ class Store:
         exists = self.inbox.exists()
         before = self.inbox.read_bytes() if exists else b''
         try:
+            previous = self.db.execute('SELECT body FROM projection').fetchone()
+            if previous and previous[0] != before:
+                # A hand-edited inbox is authoritative. Keep its bytes as the
+                # prefix and stop projecting old captures, retaining their
+                # history and IDs so retries cannot resurrect deleted items.
+                prefix = before.decode('utf-8')
+                self.db.execute('DELETE FROM ordering')
+                self.db.execute('DELETE FROM projection')
+                self.db.execute('INSERT INTO projection VALUES (?,?)', (before, prefix))
             after = ordered(before + body, self.db, ident)
             if exists and before == after:
                 self.db.commit()

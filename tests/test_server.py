@@ -232,9 +232,28 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(self.inbox.read_text().count('#no-tags'), 1)
         self.inbox.write_text(self.inbox.read_text() + 'manual edit')
         before = self.inbox.read_bytes()
-        with self.assertRaises(RuntimeError):
-            self.store.migrate()
+        self.store.migrate()
         self.assertEqual(before, self.inbox.read_bytes())
+        self.store.capture({'id': 'after-edit', 'content': 'new capture'})
+        self.assertTrue(self.inbox.read_bytes().startswith(before))
+        self.assertIn('new capture', self.inbox.read_text())
+
+    def test_manual_deletion_stays_deleted_across_retry_and_restart(self):
+        old = {'id': 'removed', 'content': 'remove this URL', 'tags': ['read']}
+        self.store.capture(old)
+        self.inbox.write_text('#read\n\nmy edited note\n')
+        edited = self.inbox.read_bytes()
+        self.assertTrue(self.store.capture(old)['duplicate'])
+        self.assertEqual(edited, self.inbox.read_bytes())
+        self.store.db.close()
+        self.store = Store(self.root / 'state', self.inbox)
+        self.store.migrate()
+        self.store.capture({'id': 'new', 'content': 'keep this URL', 'tags': ['read']})
+        self.assertTrue(self.inbox.read_bytes().startswith(edited))
+        self.assertNotIn('remove this URL', self.inbox.read_text())
+        self.assertIn('keep this URL', self.inbox.read_text())
+        self.assertIsNotNone(self.store.db.execute(
+            "SELECT created_at FROM entries WHERE id='removed'").fetchone()[0])
 
     def test_upgrade_existing_schema_and_digest(self):
         import hashlib
