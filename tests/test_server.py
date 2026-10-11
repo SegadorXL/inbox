@@ -233,9 +233,10 @@ class InboxTests(unittest.TestCase):
         self.inbox.write_text(self.inbox.read_text() + 'manual edit')
         before = self.inbox.read_bytes()
         self.store.migrate()
-        self.assertEqual(before, self.inbox.read_bytes())
+        self.assertEqual(before.rstrip(b'\n'), self.inbox.read_bytes().rstrip(b'\n'))
         self.store.capture({'id': 'after-edit', 'content': 'new capture'})
-        self.assertTrue(self.inbox.read_bytes().startswith(before))
+        self.assertIn('manual edit', self.inbox.read_text())
+        self.assertEqual(self.inbox.read_text().count('#no-tags'), 1)
         self.assertIn('new capture', self.inbox.read_text())
 
     def test_manual_deletion_stays_deleted_across_retry_and_restart(self):
@@ -249,11 +250,38 @@ class InboxTests(unittest.TestCase):
         self.store = Store(self.root / 'state', self.inbox)
         self.store.migrate()
         self.store.capture({'id': 'new', 'content': 'keep this URL', 'tags': ['read']})
-        self.assertTrue(self.inbox.read_bytes().startswith(edited))
+        self.assertIn('my edited note', self.inbox.read_text())
+        self.assertEqual(self.inbox.read_text().count('#read'), 1)
+        self.assertLess(self.inbox.read_text().index('keep this URL'),
+                        self.inbox.read_text().index('my edited note'))
         self.assertNotIn('remove this URL', self.inbox.read_text())
         self.assertIn('keep this URL', self.inbox.read_text())
         self.assertIsNotNone(self.store.db.execute(
             "SELECT created_at FROM entries WHERE id='removed'").fetchone()[0])
+
+    def test_edited_sections_merge_duplicates_and_keep_newest_first(self):
+        self.store.capture({'id': 'deleted', 'content': 'deleted URL', 'tags': ['z']})
+        self.inbox.write_text('My notes\n\n#z\n\nold URL\n\n#a\n\nkeep A\n\n#z\n\nother URL\n')
+        self.store.capture({'id': 'first', 'content': 'first new URL', 'tags': ['z']})
+        self.store.capture({'id': 'second', 'content': 'second new URL', 'tags': ['z']})
+        self.store.migrate()
+        text = self.inbox.read_text()
+        self.assertEqual(text.count('#z'), 1)
+        self.assertEqual(text.count('#a'), 1)
+        self.assertTrue(text.startswith('My notes\n\n'))
+        self.assertNotIn('deleted URL', text)
+        for content in ('keep A', 'old URL', 'other URL', 'first new URL', 'second new URL'):
+            self.assertEqual(text.count(content), 1)
+        self.assertLess(text.index('#a'), text.index('#z'))
+        self.assertLess(text.index('second new URL'), text.index('first new URL'))
+        self.assertLess(text.index('first new URL'), text.index('old URL'))
+        self.inbox.write_text(text.replace('old URL', '').replace('first new URL', ''))
+        self.store.capture({'id': 'third', 'content': 'third new URL', 'tags': ['z']})
+        text = self.inbox.read_text()
+        self.assertEqual(text.count('#z'), 1)
+        self.assertNotIn('old URL', text)
+        self.assertNotIn('first new URL', text)
+        self.assertIn('second new URL', text)
 
     def test_upgrade_existing_schema_and_digest(self):
         import hashlib

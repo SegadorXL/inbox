@@ -134,9 +134,21 @@ def ordered(raw, db, new_id=None):
     for content, tags in db.execute('SELECT c.content,c.tags FROM captures c JOIN ordering o ON c.id=o.id ORDER BY o.seq DESC'):
         tag = json.loads(tags)[0]
         groups.setdefault(tag, []).append(content)
+    # Manual edits are retained as section bodies, not as an opaque document.
+    # Merge new captures into matching headings and coalesce repeated tags.
+    headings = list(re.finditer(r'(?m)^#([\w-]{1,32})[ \t]*\r?$', prefix))
+    preamble = prefix
+    if headings:
+        preamble = prefix[:headings[0].start()]
+        for index, heading in enumerate(headings):
+            end = headings[index + 1].start() if index + 1 < len(headings) else len(prefix)
+            content = prefix[heading.end():end].strip('\r\n')
+            existing = groups.setdefault(heading[1], [])
+            if content:
+                existing.append(content)
     sections = ['#' + tag + '\n\n' + '\n\n'.join(groups[tag])
                 for tag in sorted(groups, key=lambda t: (t.casefold(), t))]
-    after = (prefix + ('\n' if sections and prefix and not prefix.endswith('\n\n') else '') + '\n\n'.join(sections) + ('\n' if sections else '')).encode()
+    after = (preamble + ('\n' if sections and preamble and not preamble.endswith('\n\n') else '') + '\n\n'.join(sections) + ('\n' if sections else '')).encode()
     db.execute('DELETE FROM projection')
     db.execute('INSERT INTO projection VALUES (?,?)', (after, prefix))
     return after
@@ -264,7 +276,7 @@ class Store:
             previous = self.db.execute('SELECT body FROM projection').fetchone()
             if previous and previous[0] != before:
                 # A hand-edited inbox is authoritative. Keep its bytes as the
-                # prefix and stop projecting old captures, retaining their
+                # section source and stop projecting old captures, retaining their
                 # history and IDs so retries cannot resurrect deleted items.
                 prefix = before.decode('utf-8')
                 self.db.execute('DELETE FROM ordering')
